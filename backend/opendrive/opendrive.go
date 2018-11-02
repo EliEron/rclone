@@ -15,6 +15,7 @@ import (
 	"github.com/ncw/rclone/fs/config/configmap"
 	"github.com/ncw/rclone/fs/config/configstruct"
 	"github.com/ncw/rclone/fs/config/obscure"
+	"github.com/ncw/rclone/fs/encodings"
 	"github.com/ncw/rclone/fs/fserrors"
 	"github.com/ncw/rclone/fs/fshttp"
 	"github.com/ncw/rclone/fs/hash"
@@ -24,6 +25,8 @@ import (
 	"github.com/ncw/rclone/lib/rest"
 	"github.com/pkg/errors"
 )
+
+const enc = encodings.OpenDrive
 
 const (
 	defaultEndpoint = "https://dev.opendrive.com/api/v1"
@@ -585,7 +588,7 @@ func (f *Fs) createObject(ctx context.Context, remote string, modTime time.Time,
 		fs:     f,
 		remote: remote,
 	}
-	return o, leaf, directoryID, nil
+	return o, enc.FromStandardName(leaf), directoryID, nil
 }
 
 // readMetaDataForPath reads the metadata from the path
@@ -636,7 +639,11 @@ func (f *Fs) Put(ctx context.Context, in io.Reader, src fs.ObjectInfo, options .
 		var resp *http.Response
 		response := createFileResponse{}
 		err := o.fs.pacer.Call(func() (bool, error) {
-			createFileData := createFile{SessionID: o.fs.session.SessionID, FolderID: directoryID, Name: replaceReservedChars(leaf)}
+			createFileData := createFile{
+				SessionID: o.fs.session.SessionID,
+				FolderID:  directoryID,
+				Name:      leaf,
+			}
 			opts := rest.Opts{
 				Method: "POST",
 				Path:   "/upload/create_file.json",
@@ -683,7 +690,7 @@ func (f *Fs) CreateDir(ctx context.Context, pathID, leaf string) (newID string, 
 	err = f.pacer.Call(func() (bool, error) {
 		createDirData := createFolder{
 			SessionID:           f.session.SessionID,
-			FolderName:          replaceReservedChars(leaf),
+			FolderName:          enc.FromStandardName(leaf),
 			FolderSubParent:     pathID,
 			FolderIsPublic:      0,
 			FolderPublicUpl:     0,
@@ -729,8 +736,8 @@ func (f *Fs) FindLeaf(ctx context.Context, pathID, leaf string) (pathIDOut strin
 		return "", false, errors.Wrap(err, "failed to get folder list")
 	}
 
+	leaf = enc.FromStandardName(leaf)
 	for _, folder := range folderList.Folders {
-		folder.Name = restoreReservedChars(folder.Name)
 		// fs.Debugf(nil, "Folder: %s (%s)", folder.Name, folder.FolderID)
 
 		if leaf == folder.Name {
@@ -777,7 +784,7 @@ func (f *Fs) List(ctx context.Context, dir string) (entries fs.DirEntries, err e
 	}
 
 	for _, folder := range folderList.Folders {
-		folder.Name = restoreReservedChars(folder.Name)
+		folder.Name = enc.ToStandardName(folder.Name)
 		// fs.Debugf(nil, "Folder: %s (%s)", folder.Name, folder.FolderID)
 		remote := path.Join(dir, folder.Name)
 		// cache the directory ID for later lookups
@@ -788,7 +795,7 @@ func (f *Fs) List(ctx context.Context, dir string) (entries fs.DirEntries, err e
 	}
 
 	for _, file := range folderList.Files {
-		file.Name = restoreReservedChars(file.Name)
+		file.Name = enc.ToStandardName(file.Name)
 		// fs.Debugf(nil, "File: %s (%s)", file.Name, file.FileID)
 		remote := path.Join(dir, file.Name)
 		o, err := f.newObjectWithInfo(ctx, remote, &file)
@@ -851,7 +858,11 @@ func (o *Object) SetModTime(ctx context.Context, modTime time.Time) error {
 		NoResponse: true,
 		Path:       "/file/filesettings.json",
 	}
-	update := modTimeFile{SessionID: o.fs.session.SessionID, FileID: o.id, FileModificationTime: strconv.FormatInt(modTime.Unix(), 10)}
+	update := modTimeFile{
+		SessionID:            o.fs.session.SessionID,
+		FileID:               o.id,
+		FileModificationTime: strconv.FormatInt(modTime.Unix(), 10),
+	}
 	err := o.fs.pacer.Call(func() (bool, error) {
 		resp, err := o.fs.srv.CallJSON(&opts, &update, nil)
 		return o.fs.shouldRetry(resp, err)
@@ -1038,7 +1049,8 @@ func (o *Object) readMetaData(ctx context.Context) (err error) {
 	err = o.fs.pacer.Call(func() (bool, error) {
 		opts := rest.Opts{
 			Method: "GET",
-			Path:   "/folder/itembyname.json/" + o.fs.session.SessionID + "/" + directoryID + "?name=" + url.QueryEscape(replaceReservedChars(leaf)),
+			Path: fmt.Sprintf("/folder/itembyname.json/%s/%s?name=%s",
+				o.fs.session.SessionID, directoryID, url.QueryEscape(enc.FromStandardName(leaf))),
 		}
 		resp, err = o.fs.srv.CallJSON(&opts, nil, &folderList)
 		return o.fs.shouldRetry(resp, err)
