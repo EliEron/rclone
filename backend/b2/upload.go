@@ -110,7 +110,7 @@ func (f *Fs) newLargeUpload(ctx context.Context, o *Object, in io.Reader, src fs
 	}
 	var request = api.StartLargeFileRequest{
 		BucketID:    bucketID,
-		Name:        o.fs.root + remote,
+		Name:        enc.FromStandardPath(o.fs.root + remote),
 		ContentType: fs.MimeType(ctx, src),
 		Info: map[string]string{
 			timeKey: timeString(modTime),
