@@ -2,7 +2,10 @@
 package vfsflags
 
 import (
+	"strings"
+
 	"github.com/ncw/rclone/fs/config/flags"
+	"github.com/ncw/rclone/fs/encodings"
 	"github.com/ncw/rclone/fs/rc"
 	"github.com/ncw/rclone/vfs"
 	"github.com/spf13/pflag"
@@ -32,5 +35,6 @@ func AddFlags(flagSet *pflag.FlagSet) {
 	flags.FVarP(flagSet, &Opt.ChunkSizeLimit, "vfs-read-chunk-size-limit", "", "If greater than --vfs-read-chunk-size, double the chunk size after each chunk read, until the limit is reached. 'off' is unlimited.")
 	flags.FVarP(flagSet, DirPerms, "dir-perms", "", "Directory permissions")
 	flags.FVarP(flagSet, FilePerms, "file-perms", "", "File permissions")
+	flags.StringVarP(flagSet, &Opt.NameEncoding, "vfs-name-encoding", "", Opt.NameEncoding, "File name encoding to use. Possible options: "+strings.Join(encodings.Names(), ","))
 	platformFlags(flagSet)
 }

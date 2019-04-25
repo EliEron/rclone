@@ -37,7 +37,7 @@ func newDir(vfs *VFS, f fs.Fs, parent *Dir, fsDir fs.Directory) *Dir {
 		f:       f,
 		parent:  parent,
 		entry:   fsDir,
-		path:    fsDir.Remote(),
+		path:    vfs.enc.FromStandardPath(fsDir.Remote()),
 		modTime: fsDir.ModTime(context.TODO()),
 		inode:   newInode(),
 		items:   make(map[string]Node),
@@ -109,6 +109,7 @@ func (d *Dir) ForgetAll() {
 // It is not possible to traverse the directory tree upwards, i.e.
 // you cannot clear the cache for the Dir's ancestors or siblings.
 func (d *Dir) ForgetPath(relativePath string, entryType fs.EntryType) {
+	relativePath = d.vfs.enc.FromStandardPath(relativePath)
 	if absPath := path.Join(d.path, relativePath); absPath != "" {
 		parent := path.Dir(absPath)
 		if parent == "." || parent == "/" {
@@ -178,7 +179,7 @@ func (d *Dir) rename(newParent *Dir, fsDir fs.Directory) {
 	d.ForgetAll()
 	d.parent = newParent
 	d.entry = fsDir
-	d.path = fsDir.Remote()
+	d.path = d.vfs.enc.FromStandardPath(fsDir.Remote())
 	d.modTime = fsDir.ModTime(context.TODO())
 	d.read = time.Time{}
 }
@@ -209,7 +210,7 @@ func (d *Dir) _readDir() error {
 	} else {
 		return nil
 	}
-	entries, err := list.DirSorted(context.TODO(), d.f, false, d.path)
+	entries, err := list.DirSorted(context.TODO(), d.f, false, d.vfs.enc.ToStandardPath(d.path))
 	if err == fs.ErrorDirNotFound {
 		// We treat directory not found as empty because we
 		// create directories on the fly
@@ -239,7 +240,7 @@ func (d *Dir) _readDirFromEntries(entries fs.DirEntries, dirTree dirtree.DirTree
 	// Cache the items by name
 	found := make(map[string]struct{})
 	for _, entry := range entries {
-		name := path.Base(entry.Remote())
+		name := d.vfs.enc.FromStandardName(path.Base(entry.Remote()))
 		if name == "." || name == ".." {
 			continue
 		}
@@ -296,7 +297,7 @@ func (d *Dir) readDirTree() error {
 	d.mu.Unlock()
 	when := time.Now()
 	fs.Debugf(path, "Reading directory tree")
-	dt, err := walk.NewDirTree(context.TODO(), f, path, false, -1)
+	dt, err := walk.NewDirTree(context.TODO(), f, d.vfs.enc.ToStandardPath(path), false, -1)
 	if err != nil {
 		return err
 	}
@@ -479,12 +480,13 @@ func (d *Dir) Mkdir(name string) (*Dir, error) {
 		return nil, err
 	}
 	// fs.Debugf(path, "Dir.Mkdir")
-	err = d.f.Mkdir(context.TODO(), path)
+	stdpath := d.vfs.enc.ToStandardPath(path)
+	err = d.f.Mkdir(context.TODO(), stdpath)
 	if err != nil {
 		fs.Errorf(d, "Dir.Mkdir failed to create directory: %v", err)
 		return nil, err
 	}
-	fsDir := fs.NewDir(path, time.Now())
+	fsDir := fs.NewDir(stdpath, time.Now())
 	dir := newDir(d.vfs, d.f, d, fsDir)
 	d.addObject(dir)
 	// fs.Debugf(path, "Dir.Mkdir OK")
@@ -507,7 +509,7 @@ func (d *Dir) Remove() error {
 		return ENOTEMPTY
 	}
 	// remove directory
-	err = d.f.Rmdir(context.TODO(), d.path)
+	err = d.f.Rmdir(context.TODO(), d.vfs.enc.ToStandardPath(d.path))
 	if err != nil {
 		fs.Errorf(d, "Dir.Remove failed to remove directory: %v", err)
 		return err
@@ -603,8 +605,8 @@ func (d *Dir) Rename(oldName, newName string, destDir *Dir) error {
 			fs.Errorf(oldPath, "Dir.Rename error: %v", err)
 			return err
 		}
-		srcRemote := x.Remote()
-		dstRemote := newPath
+		srcRemote := d.vfs.enc.ToStandardPath(x.Remote())
+		dstRemote := d.vfs.enc.ToStandardPath(newPath)
 		err = operations.DirMove(context.TODO(), d.f, srcRemote, dstRemote)
 		if err != nil {
 			fs.Errorf(oldPath, "Dir.Rename error: %v", err)

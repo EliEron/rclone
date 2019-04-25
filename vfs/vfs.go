@@ -29,7 +29,9 @@ import (
 	"time"
 
 	"github.com/ncw/rclone/fs"
+	"github.com/ncw/rclone/fs/encodings"
 	"github.com/ncw/rclone/fs/log"
+	"github.com/ncw/rclone/lib/encoder"
 )
 
 // DefaultOpt is the default values uses for Opt
@@ -51,6 +53,7 @@ var DefaultOpt = Options{
 	ChunkSize:         128 * fs.MebiByte,
 	ChunkSizeLimit:    -1,
 	CacheMaxSize:      -1,
+	NameEncoding:      "local",
 }
 
 // Node represents either a directory (*Dir) or a file (*File)
@@ -170,6 +173,7 @@ var (
 // VFS represents the top level filing system
 type VFS struct {
 	f         fs.Fs
+	enc       encoder.Encoder
 	root      *Dir
 	Opt       Options
 	cache     *cache
@@ -186,6 +190,7 @@ type Options struct {
 	NoChecksum        bool          // don't check checksums if set
 	ReadOnly          bool          // if set VFS is read only
 	NoModTime         bool          // don't read mod times for files
+	NameEncoding      string        //
 	DirCacheTime      time.Duration // how long to consider directory listing cache valid
 	PollInterval      time.Duration
 	Umask             int
@@ -214,6 +219,12 @@ func New(f fs.Fs, opt *Options) *VFS {
 		vfs.Opt = *opt
 	} else {
 		vfs.Opt = DefaultOpt
+	}
+
+	vfs.enc = encodings.ByName(vfs.Opt.NameEncoding)
+	if vfs.enc == nil {
+		fs.Errorf(nil, "Unknown vfs name encoding %q, using local encoding", vfs.Opt.NameEncoding)
+		vfs.enc = encodings.Local()
 	}
 
 	// Mask the permissions with the umask
